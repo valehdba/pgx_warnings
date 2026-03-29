@@ -425,9 +425,6 @@ sudo make uninstall USE_PGXS=1
 
 ---
 
-## Author
-
-**Valeh Agayev** — [valeh.agayev@gmail.com](mailto:valeh.agayev@gmail.com)
 
 ## License
 
