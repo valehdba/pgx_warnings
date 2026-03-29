@@ -10,9 +10,9 @@
 CREATE FUNCTION pgx_warnings_stats(
     OUT current_entries   integer,
     OUT buffer_size       integer,
-    OUT total_captured    integer,
-    OUT total_sent        integer,
-    OUT total_failed      integer,
+    OUT total_captured    bigint,
+    OUT total_sent        bigint,
+    OUT total_failed      bigint,
     OUT enabled           boolean
 )
 RETURNS record
