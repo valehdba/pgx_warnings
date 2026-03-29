@@ -1,0 +1,84 @@
+-- Basic regression tests for pgx_warnings extension
+-- Note: Full tests require shared_preload_libraries configuration
+CREATE EXTENSION IF NOT EXISTS pgx_warnings;
+-- Test: stats function returns proper columns
+SELECT current_entries, buffer_size, total_captured, total_sent, total_failed, enabled
+FROM pgx_warnings_stats();
+ current_entries | buffer_size | total_captured | total_sent | total_failed | enabled 
+-----------------+-------------+----------------+------------+--------------+---------
+               0 |        2048 |              0 |          0 |            0 | t
+(1 row)
+
+-- Test: list function returns proper columns (empty result set)
+SELECT "timestamp", level, database, message, pid, sent
+FROM pgx_warnings_list(1)
+LIMIT 0;
+ timestamp | level | database | message | pid | sent 
+-----------+-------+----------+---------+-----+------
+(0 rows)
+
+-- Test: clear function works
+SELECT pgx_warnings_clear();
+ pgx_warnings_clear 
+---------------------
+ 
+(1 row)
+
+-- Test: convenience views exist
+SELECT * FROM pgx_warnings LIMIT 0;
+ timestamp | level | database | message | pid | sent 
+-----------+-------+----------+---------+-----+------
+(0 rows)
+
+SELECT * FROM pgx_warnings_info;
+ current_entries | buffer_size | total_captured | total_sent | total_failed | enabled 
+-----------------+-------------+----------------+------------+--------------+---------
+               0 |        2048 |              0 |          0 |            0 | t
+(1 row)
+
+-- Test: GUC variables are accessible
+SHOW pgx_warnings.enabled;
+ pgx_warnings.enabled 
+-----------------------
+ on
+(1 row)
+
+SHOW pgx_warnings.min_elevel;
+ pgx_warnings.min_elevel 
+--------------------------
+ warning
+(1 row)
+
+SHOW pgx_warnings.check_interval_ms;
+ pgx_warnings.check_interval_ms 
+---------------------------------
+ 5000
+(1 row)
+
+SHOW pgx_warnings.telegram_bot_token;
+ pgx_warnings.telegram_bot_token 
+----------------------------------
+ 
+(1 row)
+
+SHOW pgx_warnings.telegram_chat_id;
+ pgx_warnings.telegram_chat_id 
+--------------------------------
+ 
+(1 row)
+
+SHOW pgx_warnings.hostname;
+ pgx_warnings.hostname 
+------------------------
+ 
+(1 row)
+
+-- Test: test function works
+SELECT pgx_warnings_test();
+WARNING:  pgx_warnings test alert: verifying capture pipeline
+                              pgx_warnings_test                               
+-------------------------------------------------------------------------------
+ Test WARNING emitted. Check pgx_warnings_list() and your Telegram channel.
+(1 row)
+
+DROP EXTENSION pgx_warnings;

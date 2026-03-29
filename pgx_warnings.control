@@ -1,0 +1,6 @@
+# pgx_warnings extension
+comment = 'Capture PostgreSQL warnings/errors and notify via Telegram'
+default_version = '1.0'
+module_pathname = '$libdir/pgx_warnings'
+relocatable = false
+superuser = true
