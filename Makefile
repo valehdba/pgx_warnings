@@ -3,6 +3,7 @@ OBJS         = pgx_warnings.o
 
 EXTENSION    = pgx_warnings
 DATA         = pgx_warnings--1.0.sql
+REGRESS      = pgx_warnings_test
 PGFILEDESC   = "pgx_warnings - capture log warnings/errors and notify Telegram"
 
 PG_CPPFLAGS  = $(shell pkg-config --cflags libcurl 2>/dev/null || curl-config --cflags 2>/dev/null)

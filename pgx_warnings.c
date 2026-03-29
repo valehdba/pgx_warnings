@@ -5,13 +5,13 @@
  *      and above, stores them in a shared-memory ring buffer, and uses
  *      a background worker to dispatch Telegram notifications via libcurl.
  *
- * Copyright (c) 2026, pgx_warnings contributors
+ * Copyright (c) 2026, Valeh Agayev and pgx_warnings contributors
  * Licensed under the PostgreSQL License.
  *
  *-------------------------------------------------------------------------
  */
 
-#include "postgres.h"
+#include "pgx_warnings.h"
 
 /* System headers */
 #include <curl/curl.h>
@@ -37,39 +37,6 @@
 
 PG_MODULE_MAGIC;
 
-/* ========================= Constants ========================= */
-#define PGX_MAX_MSG_LEN       1024
-#define PGX_RING_SIZE         2048
-#define PGX_URL_LEN           512
-#define PGX_CHATID_LEN        128
-#define PGX_HOSTNAME_LEN      128
-#define PGX_DB_NAME_LEN       128
-#define PGX_TELEGRAM_BUF_LEN  (PGX_MAX_MSG_LEN + 512)
-
-/* ========================= Data Structures ========================= */
-
-typedef struct pgxLogEntry
-{
-    TimestampTz ts;
-    int         elevel;
-    int         pid;
-    char        database[PGX_DB_NAME_LEN];
-    char        message[PGX_MAX_MSG_LEN];
-    bool        sent;
-} pgxLogEntry;
-
-typedef struct pgxSharedState
-{
-    LWLock     *lock;
-    int         head;           /* next write slot (wraps via modulo)  */
-    int         total_count;    /* number of valid entries in buffer   */
-    int         unsent_idx;     /* ring index of next entry to send    */
-    int         total_captured; /* lifetime captured count             */
-    int         total_sent;     /* lifetime sent count                 */
-    int         total_failed;   /* lifetime send failure count         */
-    pgxLogEntry entries[PGX_RING_SIZE];
-} pgxSharedState;
-
 /* ========================= GUC Variables ========================= */
 static char *pgx_telegram_bot_token  = NULL;
 static char *pgx_telegram_chat_id    = NULL;
@@ -84,9 +51,6 @@ static emit_log_hook_type       prev_log_hook            = NULL;
 static shmem_startup_hook_type  prev_shmem_startup_hook  = NULL;
 
 /* ========================= Prototypes ========================= */
-void        _PG_init(void);
-PGDLLEXPORT void pgx_warnings_main(Datum main_arg) pg_attribute_noreturn();
-
 static void pgx_shmem_startup(void);
 static void pgx_log_hook_fn(ErrorData *edata);
 static bool pgx_send_telegram(const char *message);
@@ -417,9 +381,6 @@ pgx_warnings_main(Datum main_arg)
             ProcessConfigFile(PGC_SIGHUP);
         }
 
-        if (rc & WL_POSTMASTER_DEATH)
-            proc_exit(1);
-
         if (!pgx_enabled || !pgx_state)
             continue;
 
@@ -434,7 +395,14 @@ pgx_warnings_main(Datum main_arg)
             pgxLogEntry local_copy;
             int         ring_idx;
 
-            LWLockAcquire(pgx_state->lock, LW_SHARED);
+            /*
+             * Acquire EXCLUSIVE from the start so that the read of the
+             * entry and the advance of unsent_idx are atomic.  This
+             * eliminates the race where another backend could wrap the
+             * ring buffer and overwrite the entry between a shared-lock
+             * read and a later exclusive-lock update.
+             */
+            LWLockAcquire(pgx_state->lock, LW_EXCLUSIVE);
 
             if (pgx_state->unsent_idx == pgx_state->head ||
                 pgx_state->total_count == 0)
@@ -448,19 +416,18 @@ pgx_warnings_main(Datum main_arg)
                    &pgx_state->entries[ring_idx],
                    sizeof(pgxLogEntry));
 
-            LWLockRelease(pgx_state->lock);
-
             /* Skip already-sent entries (possible after restart) */
             if (local_copy.sent)
             {
-                LWLockAcquire(pgx_state->lock, LW_EXCLUSIVE);
                 pgx_state->unsent_idx =
                     (pgx_state->unsent_idx + 1) % PGX_RING_SIZE;
                 LWLockRelease(pgx_state->lock);
                 continue;
             }
 
-            /* Format and send */
+            LWLockRelease(pgx_state->lock);
+
+            /* Format and send (outside the lock — may block on network) */
             pgx_format_message(telegram_buf,
                                sizeof(telegram_buf),
                                &local_copy);
@@ -617,9 +584,9 @@ pgx_warnings_stats(PG_FUNCTION_ARGS)
     LWLockAcquire(pgx_state->lock, LW_SHARED);
     values[0] = Int32GetDatum(pgx_state->total_count);
     values[1] = Int32GetDatum(PGX_RING_SIZE);
-    values[2] = Int32GetDatum(pgx_state->total_captured);
-    values[3] = Int32GetDatum(pgx_state->total_sent);
-    values[4] = Int32GetDatum(pgx_state->total_failed);
+    values[2] = Int64GetDatum(pgx_state->total_captured);
+    values[3] = Int64GetDatum(pgx_state->total_sent);
+    values[4] = Int64GetDatum(pgx_state->total_failed);
     values[5] = BoolGetDatum(pgx_enabled);
     LWLockRelease(pgx_state->lock);
 
